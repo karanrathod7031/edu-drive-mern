@@ -1,0 +1,130 @@
+import React, { useEffect, useState } from 'react';
+import { assetService } from '../../services/assetService';
+import AssetCard from './AssetCard';
+import AssetSkeleton from './AssetSkeleton';
+import SearchBar from './SearchBar'; 
+import FilePreview from './FilePreview'; 
+import { toast } from 'react-hot-toast';
+
+const StudentLibrary = ({ activeTag }) => {
+  const [assets, setAssets] = useState([]);
+  const [filteredAssets, setFilteredAssets] = useState([]);
+  const [currentFolder, setCurrentFolder] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+
+  useEffect(() => {
+    const load = async () => {
+      setLoading(true);
+      try {
+        const data = await assetService.fetchAssets(currentFolder);
+        setAssets(data);
+        setFilteredAssets(data);
+      } catch (err) { toast.error("Error loading library"); }
+      setLoading(false);
+    };
+    load();
+  }, [currentFolder]);
+
+  useEffect(() => {
+    let temp = assets;
+    if (activeTag !== 'All') {
+      temp = temp.filter(a => a.category === activeTag);
+    }
+    if (searchTerm) {
+      temp = temp.filter(a => 
+        a.title.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    setFilteredAssets(temp);
+  }, [searchTerm, activeTag, assets]);
+
+  // --- 🛠️ UPDATED: Action Handler with 401 Fix Logic ---
+  const handleAction = (asset) => {
+    if (asset.type === 'folder') {
+      setCurrentFolder(asset._id);
+    } else {
+      if (asset.price > 0) {
+        toast.success("Checkout system coming soon!", { icon: '💳' });
+      } else {
+        // 🛡️ 401/CORS Fix: URL ko sanitize aur HTTPS ensure karna
+        let cleanUrl = asset.fileUrl.replace("http://", "https://");
+        
+        // Agar Cloudinary URL mein transformations hain, toh unhe clean karna
+        // (Yeh line zaroori hai agar Viewer file fetch nahi kar pa raha)
+        if (cleanUrl.includes("upload/")) {
+            // PDF ko bypass karne ke liye optimization hatana pad sakta hai
+            cleanUrl = cleanUrl.replace("/upload/f_auto,q_auto/", "/upload/");
+        }
+
+        setSelectedFile({ ...asset, fileUrl: cleanUrl });
+        setIsPreviewOpen(true);
+      }
+    }
+  };
+
+  return (
+    <section className="py-12">
+      <div className="max-w-7xl mx-auto px-6">
+        
+        <div className="max-w-3xl mx-auto mb-16">
+          <SearchBar 
+            searchTerm={searchTerm} 
+            onSearchChange={setSearchTerm} 
+            placeholder={`Search in ${currentFolder ? 'this folder' : 'all resources'}...`}
+          />
+        </div>
+
+        <div className="mb-8 flex items-center justify-between">
+          <h2 className="text-2xl font-black text-slate-900 uppercase tracking-tighter">
+            {currentFolder ? '📁 Folder Content' : '📚 All Resources'}
+          </h2>
+          {currentFolder && (
+            <button 
+              onClick={() => setCurrentFolder(null)}
+              className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all uppercase tracking-widest"
+            >
+              ← BACK TO MAIN
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8">
+          {loading ? (
+            [...Array(10)].map((_, i) => <AssetSkeleton key={i} />)
+          ) : filteredAssets.length > 0 ? (
+            filteredAssets.map(asset => (
+              <AssetCard 
+                key={asset._id} 
+                asset={asset} 
+                onOpen={(a) => handleAction(a)}
+                onAction={handleAction} 
+              />
+            ))
+          ) : (
+            <div className="col-span-full text-center py-20 bg-slate-50 rounded-[3rem] border-2 border-dashed border-slate-200">
+              <p className="text-slate-400 font-bold uppercase text-xs tracking-widest">No resources found</p>
+            </div>
+          )}
+        </div>
+
+        {selectedFile && (
+          <FilePreview 
+            fileUrl={selectedFile.fileUrl}
+            title={selectedFile.title}
+            isOpen={isPreviewOpen}
+            onClose={() => {
+              setIsPreviewOpen(false);
+              setSelectedFile(null);
+            }}
+          />
+        )}
+      </div>
+    </section>
+  );
+};
+
+export default StudentLibrary;
